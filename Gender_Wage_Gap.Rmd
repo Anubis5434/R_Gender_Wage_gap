@@ -1,0 +1,671 @@
+---
+title: "Gender_Wage_Gap"
+author: "Jinxue Li"
+AndrewID: ljinxue
+date: "12/8/2019"
+output: 
+  html_document:
+    theme: paper
+    highlight: tango
+    toc: true
+    toc_depth: 3
+    fig_width: 5
+    fig_height: 5
+---
+#### Abstract
+
+In this project, we are using a dataset to explore following questis：  
+Is there a significant difference in income between men and women?  
+Does the difference vary depending on other factors (e.g., education, marital status, criminal history, drug use, childhood household factors, profession, etc.)?  
+Now, let's begin!  
+
+#### Loading some necessary packages and basic settings here.
+```{r, include=FALSE}
+library(tidyverse)
+library(knitr)
+library(ggplot2)
+library(dplyr)
+library(plyr)
+library(MASS)
+library(VIM)
+library(DT)
+library(plotly)
+library(PerformanceAnalytics)
+options(scipen = 4)
+```
+
+## Data Summary
+
+### **(a)** Data Loading
+
+We are using the NLSY79 (National Longitudinal Survey of Youth, 1979 cohort) data set. The NLSY79 data set contains survey responses on thousands of individuals who have been surveyed every one or two years starting in 1979.  
+
+Loading the whole dataset.
+
+```{r}
+nlsy <- read_csv("http://www.andrew.cmu.edu/user/achoulde/94842/final_project/nlsy79/nlsy79_income.csv")
+
+# Change column names (mostly) to question name abbreviations
+colnames(nlsy) <- c("VERSION_R25_2012",
+    "CASEID_1979",
+    "FAM-2A_1979",
+    "FAM-POB_1979",
+    "FAM-3_1979",
+    "FAM-3A_1979",
+    "FAM-RES_1979",
+    "FAM-6_1979",
+    "R_REL-1_COL_1979",
+    "SCHOOL-31_1979",
+    "MIL-6_1979",
+    "WOMENS-ROLES_000001_1979",
+    "WOMENS-ROLES_000002_1979",
+    "WOMENS-ROLES_000003_1979",
+    "WOMENS-ROLES_000004_1979",
+    "WOMENS-ROLES_000006_1979",
+    "WOMENS-ROLES_000007_1979",
+    "WOMENS-ROLES_000008_1979",
+    "EXP-OCC_1979",
+    "EXP-9_1979",
+    "race",
+    "gender",
+    "MARSTAT-KEY_1979",
+    "FAMSIZE_1979",
+    "POVSTATUS_1979",
+    "POLICE-1_1980",
+    "POLIC-1C_1980",
+    "POLICE-2_1980",
+    "ALCH-2_1983",
+    "DS-8_1984",
+    "DS-9_1984",
+    "Q13-5_TRUNC_REVISED_1990",
+    "POVSTATUS_1990",
+    "HGCREV90_1990",
+    "jobs.num",
+    "NUMCH90_1990",
+    "AGEYCH90_1990",
+    "DS-12_1998",
+    "DS-13_1998",
+    "INDALL-EMP.01_2000",
+    "CPSOCC80.01_2000",
+    "OCCSP-55I_CODE_2000",
+    "Q2-15B_2000",
+    "Q10-2_2000",
+    "Q13-5_TRUNC_REVISED_2000",
+    "FAMSIZE_2000",
+    "TNFI_TRUNC_2000",
+    "POVSTATUS_2000",
+    "MARSTAT-COL_2000",
+    "MARSTAT-KEY_2000",
+    "MO1M1B_XRND",
+    "Q2-10B~Y_2012",
+    "INDALL-EMP.01_2012",
+    "OCCALL-EMP.01_2012",
+    "OCCSP-55I_CODE_2012",
+    "Q2-15A_2012",
+    "Q12-6_2012",
+    "income",
+    "Q13-5_SR000001_2012",
+    "Q13-5_SR000002_2012",
+    "Q13-18_TRUNC_2012",
+    "Q13-18_SR000001_TRUNC_2012",
+    "FAMSIZE_2012",
+    "REGION_2012",
+    "HGC_2012",
+    "URBAN-RURAL_2012",
+    "JOBSNUM_2012")
+```
+
+### **(b)** Data Selecting
+
+For the convenience of analysis, we would like to generate a sub-dataframe.  
+
+We will do this step by step:
+
+#### Step 1: What are the variables we interested in?
+
+This dataset contains lots of historical data, to be specific, we want to study on a cross sectional dataset of year 2012, so we are including some variables from 2012 survey mainly, and basic information of subjects such as race, gender in historical survey (which remain stable for each subjects). We will name our subdataset as `gwgap`(stands for "gender wage gap").  
+
+Below are the selected variables and brief description:  
+
+`income`: total income from wage and salary in 2012  
+`gender`: gender, Male/Female  
+`race`: racial group, Hispanic/Black/Non-black  
+`educ_year`: education years, continus variable of highest grade completed  
+`region`: rigion of residence  
+`num_job`: Number of jobs ever reported at interview date  
+`urban`: urban or rural residence  
+`industry`: recoded based on "four sectors theory": primary sector/secondary sector/tertiary sector/quaternary sector/puublic sector.  
+
+##### Grabing columns for `nlsy` dataset
+
+```{r}
+gwgap <- data.frame(income = nlsy$income,
+                    gender = nlsy$gender,
+                    race = nlsy$race,
+                    educ_year = nlsy$HGC_2012,
+                    region = nlsy$REGION_2012,
+                    num_job = nlsy$JOBSNUM_2012,
+                    urban = nlsy$`URBAN-RURAL_2012`,
+                    industry = nlsy$`INDALL-EMP.01_2012`)
+```
+
+#### Step 2: How do we deal with missing values?
+
+##### First we drop all the negative values of numeric variables.
+
+```{r}
+# drop negative values of income, educ_year, and num_job
+gwgap <- subset(gwgap, income > 0)
+gwgap <- subset(gwgap, educ_year > 0)
+gwgap <- subset(gwgap, num_job > 0)
+```
+
+##### What about factor varibles?
+
+We will assign other factor variables(not are they at the present) whose value is negative to NA, we don't simply omit them so far, beacuse we may want to think carefully about whether these values are informative.
+
+```{r}
+gwgap[gwgap < 0] <- NA
+# summay present distribution of NA in the dataframe
+
+# table1 Data summary for NA values
+table1 <- kable(summary(gwgap))
+table1
+```
+
+As we can see, there are NA values in `region`, `urban`, and `industry`.  
+
+To move a step further, we want to know the distribution of these NA values in the dataframe, we will use function `aggr` in the package `VIM` here.
+
+```{r, fig.width=9}
+aggr(gwgap, prop = FALSE, numbers = TRUE)
+```
+
+Plots above is a visualization of NA values in the data frame, there is an interesting pattern: missing value of geographical variables (`region` and `urban`) and those of `industry`are completely non-overlapping. Since we may want to detect geographysical features of gender wage gap in this report, by looking up the nlsy description documentant, we can probably guess that the reason of missing geographical variables is "Non-interview" or "valid skip", and also because numbers are realtively small, we can infer that those values are not informative, so we just omit them.  
+
+```{r}
+gwgap <- subset(gwgap, !is.na(region))
+gwgap <- subset(gwgap, !is.na(urban))
+# we may also want to exclue unknown rural/urban residence
+gwgap <- subset(gwgap, urban != 2)
+```
+
+But for 105 missing industry variables, we cannot simmply omit them for 2 reasons, 1) they might be highly informative, as unknown/unreported industry may indicate a strong relationship with income. 2) the number of missing values are relatively large.  
+We will deal with these NA values below.  
+
+#### Step 3: Now let's do some recoding to give variables more meaingful names of levels
+
+##### Some simple releveling first
+
+```{r}
+# a glance of varible type and factor levels
+str(gwgap)
+# some simple releveling
+gwgap <- mutate(gwgap,
+                gender = recode_factor(gender,
+                                       `1` = "Male",# Male group is baseline
+                                       `2` = "Female"),
+                race = recode_factor(race,
+                                     `3` = "Other", # Other group is baseline
+                                     `2` = "Black",
+                                     `1` = "Hispanic"),
+                region = recode_factor(region,
+                                       `1` = "Northeast", # North east is the baseline
+                                       `2` = "Northcentral",
+                                       `3` = "South",
+                                       `4` = "West"),
+                urban = recode_factor(urban,
+                                      `1` = "Urban", # urabn is the baseline
+                                      `0` = "Rural"))
+
+```
+
+##### Education
+
+In classical human capital theory, education is one of the most predictor of future income, so we want to include it in our analysis. Here the education is continuous variables indicating eductional years, as we all know the effect of education may not follow a continuous pattern, this is some undermining points of regression model below. We will mutate education as a factor variable afterwards.
+But in the final regressional model, we will still use numerical education year varible, assumpting human capital accumulation is continuous along with education.
+Any way, let's look at `educ_year`:  
+```{r}
+table(gwgap$educ_year)
+```
+As we can see, our sub data frame doesn't have special values such as "93" indicating PRE-KINDERGARTEN, etc. As assumpted above, we don't need to do anything to `educ_year` at the present.
+
+##### Industry
+```{r, include = FALSE}
+table(gwgap$industry)
+```
+There are many levels in `industry` and they are meaningless, for the convience of analysis, we want to refactor the variable according to the "four sectors economy theory", with a little change.  
+Some related links: https://www.economicshelp.org/blog/12436/concepts/sectors-economy/
+By doing this, this variable can be used to analysis gender wage gap across different sectors of economy.
+```{r}
+gwgap[is.na(gwgap)] <- 0
+gwgap$industry <- cut(gwgap$industry, 
+                      breaks = c(0,130, 330, 530, 730, 1030, 4030, 4630, 6030, 6430, 6830, 7030, 7230, 7530, 7830, 7930, 8530, 8630, 8730, 9330, 9830, 9930, 9980, 9995), right = FALSE, labels = c(0, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 3, 4, 3, 4, 3, 3, 3, 3, 5, 5, 5, 5))
+
+gwgap <- mutate(gwgap, 
+                industry = recode_factor(industry,
+                                         `3` = "Tertiary",
+                                         `1` = "Primary",
+                                         `2` = "Secondary",
+                                         `4` = "Quaternary",
+                                         `5` = "Public",
+                                         `0` = "Unknown"))
+
+```
+
+
+### **(c)** Descriptive Statistics
+
+#### Tablur Summary
+```{r}
+# table2 Data summary for Descriptive Statistics
+table2 <- kable(summary(gwgap))
+table2
+```
+
+
+
+From the table above, We can get an overview of the variables in our data. We can see that gender is almost equally distributed in our sample dataset, which is a good news. Proportion of Race is similar as general population in US, Urban/Rural proportion is about 4 : 1. 
+For other variables, let's get a closer look by plotting.
+
+#### Overviewing Data by ploting
+
+```{r, fig.width=8}
+# plot1: Income Distribution
+plot1<- ggplot(gwgap, aes(x = income)) + geom_histogram() + xlab("Reported Income 2012") + ylab("Frequency") +
+  ggtitle("Income Ditribution") + stat_bin(binwidth = 50)
+plot1
+```
+
+As we can see, income distribution is right-skewed, and there are some outliers in far most side, which is top coded value. We will deal with them later.
+
+```{r, fig.width=8}
+# plot2: Region Distribution
+plot2 <- ggplot(gwgap, aes(x = "", y = region, fill = region)) +
+  geom_bar(stat = "identity", width = 1) + coord_polar(theta = "y") +
+  labs(x = "", y = "", title = "") +
+  theme(axis.text.x = element_blank(),axis.text.y = element_blank(), axis.ticks = element_blank(),legend.title = element_blank(), legend.position = "top") + ggtitle("Region Distribution")
+plot2
+```
+
+Above is the distribution of subjects residence region, south is the most common. (But Note we chose Northeast 
+as baseline group as to be more standard for the analysis. )
+
+```{r, fig.width=8}
+# plot3: Job numbers Distribution
+plot3 <- ggplot(gwgap, aes(x = num_job)) + geom_histogram() + xlab("Number of jobs") + ylab("Frequency") + ggtitle("Job number ditribution")
+plot3
+```
+
+Job number distribution is as expected, right-skewed.
+
+```{r, fig.width=8}
+# plot4: Indutry Distribution
+plot4 <- ggplot(gwgap, aes(x = industry)) + geom_histogram(stat = "count") + xlab("Industrial Sector") + ylab("Frequency") + ggtitle("Industy ditribution")
+plot4
+```
+
+As we can see, most people works in Tertiary Industry.
+
+```{r, fig.width=8}
+# plot5: Education Distribution
+plot5 <- ggplot(gwgap, aes(x = educ_year)) + geom_histogram() + xlab("Education years") + ylab("Frequency") + ggtitle("Education ditribution") + stat_bin(binwidth = 1)
+plot5
+```
+
+As we can see, most are high school graduate. We will use this pattern to category education as a factor varible to conduct a further analysis in next part.
+
+## Methodlogy
+
+### **(a)** Exploring Gender Wage Gap By Visualization
+
+Since we are mainly interested in the gender wage gap across various factors, first we will look into some plot revealing this question.
+
+#### Across-All Gender Wage Gap
+```{r, fig.width=8}
+# plot6: Overall Gender Wage Gap
+plot6 <- ggplot(gwgap, aes(x = gender, y = income, fill = gender)) + geom_boxplot() + xlab("Gender") + ylab("Income") + ggtitle("Overall Gender Wage Gap")
+ggplotly(plot6)
+
+```
+
+As we can see from the box plot, there is a obvious difference between male and female.
+
+```{r, fig.width=8}
+# table3 High income proportion 
+# mutate column: high.income
+gwgap <- mutate(gwgap,
+                     high.income = as.numeric(income > 50000))
+
+# construct prop table
+high.earner.table <- gwgap%>%
+  dplyr::group_by(gender)%>%
+  dplyr::summarize(count = dplyr::n(), high.earn.rate = round(mean(high.income),4))
+high.earner.table <- kable(high.earner.table)
+```
+
+As we can see in the table, male are more likely to be in a higher income level(>50k), this may indicating some potential factors contributing to the gender wage gap. We may try to reveal it later.
+
+```{r, fig.width=8}
+# plot7: Gender wage gap broken down by income level
+plot7 <- ggplot(gwgap, aes(x = gender, y = income, fill = gender)) + geom_boxplot() + xlab("Gender") + ylab("Income") + ggtitle("Gender Wage by Income Level") + facet_wrap( . ~ high.income)
+ggplotly(plot7)
+```
+
+
+As we can say, in both income level, gender wage gap is apparent. 
+
+```{r, fig.width=8}
+# plot8: Gender wage gap broken down by region of residence
+plot8 <- ggplot(gwgap, aes(x = gender, y = income, fill = gender)) + geom_boxplot() + xlab("Region of Residence") + ylab("Income") + ggtitle("Gender Wage gap break down by region") + facet_wrap( .~region)
+ggplotly(plot8)
+```
+
+As we can see, gender wage gap seems obvious again, and appears even across regions. 
+
+```{r, fig.width=8}
+# plot9: Gender wage gap broken down by urban/rural residence
+plot9 <- ggplot(gwgap, aes(x = gender, y = income, fill = gender)) + geom_boxplot() + xlab("Urban/Rural Residence") + ylab("Income") + ggtitle("Gender Wage gap broken down by urban/rural residence") + facet_wrap( .~urban)
+ggplotly(plot9)
+
+```
+
+As we expected, gender wag gap is signficiant in both area.
+
+#### So far, all selected variables seems to have some substantial relationship with gender wage gap. Limited by time, we cannot go through all of them in this report. Now let's see industry variable. 
+
+```{r, fig.width=8}
+# plot10 Gender wage gap break down by industry
+plot13 <- ggplot(gwgap, aes(x = gender, y = income, fill = gender)) + geom_boxplot() + xlab("Industry") + ylab("Income") + ggtitle("Gender Wage gap break down by industry") + facet_wrap( .~industry)
+ggplotly(plot13)
+```
+
+It's interesting, since the gap seems varies a little across different industry, in the category "Unknown", there seems no difference. Industry can be a interesting variable and I want to explore it further in the next part.  
+
+### **(c)** Some More Interesting Trends and Discussion
+
+For `race` variable, we have discussed it a lot in the class, so I will not include the plot in the html report.  
+
+#### Besides, I' ve done some analysis between education and gender wage gap, and I do have some interesting finds.
+
+As mentioned, we are assuming that education variable varies continuously, but in fact it is not. Apparently, whether entering the college make a great matter, so grade 13 might be a threshold. Based on this, I recoded a fact varible, `college.entry`, and constructed a prop table. And then, plot a box plot to see the gender wage gap between different education completing status groups.  
+We found that even though women are more likely to enter into the college than man on average, the gender wage gap actually increased after entering into college. Indicating college education benefit men more than women.  
+
+#### I did similar analysis on number of jobs' effect on gender wage gap.
+
+I found that, for the people having 10 jobs or more, gender wage gap seems smaller that those have less job numbers.  
+
+And income and job numbers shows a sightly negative relationship, probably not linear, which might need more research. 
+
+Plots and tables about race, education and number of jobs are not inclued in the output file but you can check it in the source code rmd file. 
+
+```{r, fig.width=8, include=FALSE}
+# plot race
+plot.race <- ggplot(gwgap, aes(x = gender, y = income, fill = gender)) + geom_boxplot() + xlab("Gender") + ylab("Income") + ggtitle("Gender Wage") + facet_wrap( .~race)
+plot.race
+
+
+# table: education level proportion
+gwgap <- mutate(gwgap,
+                     college.entry = as.numeric(educ_year > 12))
+
+college.entry.table <- gwgap%>%
+  dplyr::group_by(gender)%>%
+  dplyr::summarize(count = dplyr::n(), college.entry.rate = round(mean(college.entry),4))
+college.entry.table
+
+# plot education level 
+plot14.1 <- ggplot(gwgap, aes(x = gender, y = income, fill = gender)) + geom_boxplot() + xlab("Education Level") + ylab("Income") + ggtitle("Gender Wage gap in different ecucation level") + facet_wrap( .~college.entry)
+plot14.1
+
+# plot income vs num_job
+plot.num.inc <- ggplot(gwgap, aes(x = num_job, y = income, color = gender)) + geom_point() + xlab("Number of Jobs") + ylab("Income") + ggtitle("Income by number of jobs, break down by gender") + facet_wrap( . ~ gender) + stat_smooth(method = "auto", color = "Blue", alpha = 0.5)
+plot.num.inc
+
+# mutate number of jobs as factor varible and reveal gender wage gap across different groups. 
+gwgap <- mutate(gwgap, high.num.job = as.numeric(num_job > 10))
+plot.high.num <- ggplot(gwgap, aes(x = gender, y = income, fill = gender)) + geom_boxplot() + xlab("If number of jobs greater than 10") + ylab("Income") + ggtitle("Gender Wage gap between different levels of job number") + facet_wrap( . ~ high.num.job)
+plot.high.num
+
+
+```
+
+
+
+## Findings
+
+In this part, we will do some regressions and explore a step further to look at favtors that influencing gender wage gap.
+
+To begin with, we need to consider the potential problem of colinearity, by doing some correlation analysis here.
+
+### **(a)** Deal With Colinearity
+
+We are using a function from package "PerformanceAnalytics", which can directly draw a correlation plot.
+
+Here we are only review correlationship between numeric vairables.
+
+```{r, fig.width=8}
+# extract a sub-dataset of numeric variables
+corr.table <- gwgap[, c("educ_year", "num_job")]
+
+# plot14 Corr-analysis 
+plot14 <- chart.Correlation(corr.table, histogram = TRUE, PCH = 19)
+
+```
+
+As we can see, we can not say that education years and number of jobs are not correlated, they have a strong relationship. But actually in my regression, I find both variables signficant. But base on current knowedge, I could not know the reason of this as well as how to deal with it, so I included them in the model anyway.  
+
+### **(b)** Deal With Top-coded Values
+
+For the problmes of top-coded values, recall that there are a little peak in the far right side in income distribution plot. These values can have a big impact on the model. So we want to deal with this. 
+
+#### We will begin with two scatter plots.
+
+```{r, fig.width=8}
+# plot15 Scatter plot, income ~ education years
+plot15 <- ggplot(gwgap, aes(x = educ_year, y = income)) + geom_point() +stat_smooth(method = "lm") + ggtitle("income ~ education years")
+plot15
+
+
+# As we can see, those top-coded value make regression line steeper like a teeterboard, based on the knowledge about income inequality situation in US, at least we can see high variance near upper bound are not caused by ecucation. So we may want to drop these subjects to have a more unbiased estimation of more general popolation.
+# exclude top-coded values
+lm.top <- lm(income ~ educ_year + gender + race + num_job + region + urban + industry, gwgap)# store the regression before mutating dataset.
+topcoded.income <- max(gwgap$income)
+topcoded.income
+gwgap <- subset(gwgap, income < topcoded.income)
+
+
+# Now let's do the plotting again
+# plot16 Scatter plot, income ~ education years
+plot16 <- ggplot(gwgap, aes(x = educ_year, y = income)) + geom_point() +stat_smooth(method = "lm") + ggtitle("income ~ education years")
+plot16
+```
+
+As we can see, fitted line become more balanced after excluding top-coded values.  
+
+Now let's do the comparision by look into the out put of regression.
+
+```{r}
+# this is the overall regression after excluding top-coded values
+lm.overall <- lm(income ~ educ_year + gender + race + num_job + region + urban + industry, gwgap)
+
+# Regression output before excluding top-coded values
+table.top <- kable(summary(lm.top)$coef, digits = c(3, 3, 3, 4), format = 'markdown')
+table.top
+# Regression output after excluding top-coded values
+table.overall <- kable(summary(lm.overall)$coef, digits = c(3, 3, 3, 4), format = 'markdown')
+table.overall
+```
+
+As we can see in the two tables above, nearly all of cofficients become signficant after droping top-coded values. 
+
+### **(c)** Regression Model Construction
+
+As we notice above, region west is not significant, so we may ask the question: is variable `region` effective/signficaiant when we add it into the model？
+
+We will do an anova test to see if including `region` is significant.
+
+```{r}
+# updating the regression
+lm.no.region <- update(lm.overall, . ~ . - region)
+
+# Regression Output
+table.no.region <- kable(summary(lm.no.region)$coef, digits = c(3, 3, 3, 4), format = 'markdown')
+table.no.region
+```
+
+Output seems not bad except that coefficent of race hispanic become non-significant. 
+
+Now let's do the anova test:
+
+```{r}
+anova(lm.no.region, lm.overall)
+```
+
+As we can see from the test result, it is highly significant. So we should include region in our regression. 
+
+```{r, fig.width=8}
+# regression diagnostic plots
+plot17 <- plot(lm.overall)
+```
+
+Now let's do some interpretation of the regression model:
+
+```{}
+Seen from regression diagnostic plots, we can see that the residuals did not have a completely constant varience, which indicating potential non-linear relationship between income and other variables.
+
+From the normal qq plot, we can see clearly that on the higher side of the income, the residuals did not follow a normally distributed pattern, but for the rest part, it is pretty good. 
+
+We can draw similar conclusion about non-linear relationship from scale-location plot.
+
+For the residuals vs leverage plot, because we have excluded top-coded values, the result seems pretty good.
+
+Overall, model fitting is significant(F-statistics is `r summary(lm.overall)$fstatistic[1]` and p_value is nearly 0, even the r squared(`r summary(lm.overall)$r.squared`) is not high, which indicates that a large part of variance remain unexplained, based on a knowledge of standard wage model, the major missing variables could be: working years, job training reperience, etc. 
+Below are the intepretation of some cofficients:
+
+Intercept: in this model, it indicates that `r round(summary(lm.overall)$coef["(Intercept)", "Estimate"], 2)`$ is the basic earning of such a featured person: male, non-black or hispanic, live in northeast of the country, with no education, live in urban area, having no job experience, expecting working in tieratiry industry. It is very hard to find such a person in reality, but due to the fact the income level here is negative, the interperation itself is somehow meaningless.
+
+Race: As we can see, all else held equal, comparing to the baseline group, race black and race hispanic earns signficantly less the other group, respectively: black (`r round(summary(lm.overall)$coef["raceBlack", "Estimate"], 2)`$), hispanic (`r round(summary(lm.overall)$coef["raceHispanic", "Estimate"], 2)`$).
+
+num_job: all else held equal, one more job numbers is associated with a deduction of `r round(summary(lm.overall)$coef["num_job", "Estimate"], 2)`$ on average, frequently changing job may be indicators of some non-reliable characters of one person, which may result in lower income. 
+
+region: all else held equal, we can say that comparing to the Northeast group, people in other South and Northcentral part of the country earn less, for the west part, the coef is not significant, this might because West part is as developed as Northeast in recent years, but the variance of income could be large, because there are still many rural areas in West.
+
+urban/rural: the coef is as expected, people in rural area earns `r round(summary(lm.overall)$coef["urbanRural", "Estimate"], 2)`$ less on average. 
+
+industry: the baseline group here is tertiary sector, people in other industry all earn more, which is not interesting. This may be related to the denefination of industry in our dataset here. An impressive pattern is that, people in public sector earn `r round(summary(lm.overall)$coef["industryPublic", "Estimate"], 2)`$ more than baseline group. 
+
+```
+
+
+
+### **(d)** Exploring Gender Wage Gap Across Various Industries
+
+#### Step 1: Is There A Significant Gender Wage Gap In Different Industries?
+
+
+```{r}
+# constructing a table for analyzing gender wage gap between industry groups
+industry.plot.df <- gwgap%>%
+  group_by(gender, industry)%>%
+  summarise(mean.income = mean(income),
+            lower = t.test(income)$conf.int[1],
+            upper = t.test(income)$conf.int[2])
+kable(industry.plot.df)        
+```
+
+Using the table above, we can draw some graphs. 
+
+```{r, fig.width=8}
+# ploting mean income across industry groups and adding error bars
+industry.plot <- ggplot(data = industry.plot.df, aes(x = industry, y = mean.income, fill = gender))
+plot18 <- industry.plot + geom_bar(position = "dodge", stat = "identity") + geom_errorbar(aes(ymin = lower, ymax = upper), width = .2, position = position_dodge(0.9)) + ylab("average income")
+ggplotly(plot18)
+```
+
+As we can see in the graph, there are wage gap in nearly all industry groups except "Unknown", but for some group, the confidence interval of mean income is wide, indicating that the gender wage gap may vary dramatically. 
+
+To be more clear, we will look directly into the gender wage gap of industry groups and draw the error bar to see if they are significant.  
+
+```{r}
+# before ploting, we will simply calculating and see if they are significant:
+industry.analysis <- gwgap%>%
+  group_by(industry)%>%
+  summarise(diff.sig = round(t.test(income ~ gender)$p.value, 4))
+kable(industry.analysis)
+```
+
+As we can see, in group primary and unknown, gender wage gap is not significant, so far. 
+
+continue with plotting:
+
+```{r, fig.width=8}
+# here are another sub data frame used to plot the gender wage gap
+diff.plot.df <- gwgap%>%
+  group_by(industry)%>%
+  summarise(income.diff = t.test(income ~ gender)$estimate[1] - t.test(income ~ gender)$estimate[2],
+            lower = t.test(income ~ gender)$conf.int[1], 
+            upper = t.test(income ~ gender)$conf.int[2])
+kable(diff.plot.df)
+
+# Now we can draw the gender wage gap of industry groups and error bars
+diff.plot <- ggplot(data = diff.plot.df, aes(x = industry, y = income.diff, fill = industry))
+plot19 <- diff.plot + geom_bar(position = "dodge", stat = "identity") + geom_errorbar(aes(ymin = lower, ymax = upper), width = .2, position = position_dodge(0.9)) + ylab("average gender wage gap")
+ggplotly(plot19)
+
+```
+
+
+The plot is saying the some conclusion but more vivid.
+
+#### Step 2: A Closer Look: Interaction analysis
+
+##### Now we are interested in: how does `industry` interacts with `gender` to affect `income`? 
+
+An advantage of analyzing interaction terms is we can decompose the effect that industry has on gender wage gap by control all other substantial variabls that influcencing income. 
+
+```{r}
+# updating the regression
+lm.interact <- update(lm.overall, . ~ . + gender * industry)
+
+# table of output
+interact.table <- kable(summary(lm.interact)$coef, digits = c(3, 3, 3, 4), format = 'markdown')
+interact.table
+```
+
+It's interesting, only one coefficient of interaction terms is signficant. 
+
+Is it ineffective to include the interection term?  
+
+Let's conduct anova analysis.
+
+```{r}
+
+anova(lm.overall, lm.interact)
+
+```
+
+
+See! It's significant, so what does this mean? 
+
+Well, considering plotting analysis above, we can infer that though the gender wage gap is significant in many industry groups, after controling for some variables in the regression, we find that in this quaternary sector group, the gender wage gap still remain signficant. We can infer to things from this, difference between industry groups may be accounted for by other varibles, which our model successfully captured, so most of the gap become non-signficant, but there is still, for some reason, the gender wage gap is significant in quaternary group. And the reason is unclear, we have to do further research to find out why.
+
+The intepration of the coffecient is that all others held equal, men in quaternary earns 8660$ more than women on average. 
+
+The difinenation of "Quaternary sector" is: a knowledge-based part of the economy, which typically includes knowledge-oriented economic sectors such as information technology, media, research and development; information-based services such as information-generation and information-sharing; and knowledge-based services such as consultation, education, financial planning, blogging, and designing.
+
+Here comes the most interesting thing! Above are almost exactly the business or jobs we would go to after graduation.
+
+
+
+
+
+## Discussion
+
+Overall, we can draw the conclusion that gender wage gap is almost universal (when comparing man and women in same condition), at least for the factors we included in the model. 
+
+Another fact is there are many factors that can have interact or overlapping effect on gender wage gap, some of the mechanism we do know the reason, for some other, like the one we explored in the report "`industry`", the reasons of the significance of the interaction term needs further more research on.
+
+I have like 70% confidence on my analysis, one most important deduction is that we didn't include possibily most powerful factor, which is job-realted experience or capacity level, that influences income. And the regression model itself can also be potentially improved by adding or replacing some varibles or interaction terms. What's more, as we mentioned before, non-linear pattern of the effect of education can be a potential weak point of the analysis. 
+
+
