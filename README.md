@@ -1,5 +1,13 @@
 # R_Gender_Wage_gap
 This is an empirical research report on gender wage gap on data from NLSY79 (National Longitudinal Survey of Youth, 1979 cohort).
+
+## Abstract
+
+In this project, we are using a dataset to explore following questis：  
+Is there a significant difference in income between men and women?  
+Does the difference vary depending on other factors (e.g., education, marital status, criminal history, drug use, childhood household factors, profession, etc.)?  
+
+
 Data set description:
 
 This dataset contains lots of historical data, to be specific, we want to study on a cross sectional dataset of year 2012, so we are including some variables from 2012 survey mainly, and basic information of subjects such as race, gender in historical survey (which remain stable for each subjects). We will name our subdataset as `gwgap`(stands for "gender wage gap").  
